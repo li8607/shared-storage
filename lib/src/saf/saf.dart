@@ -201,6 +201,41 @@ Stream<DocumentFile> listFiles(
   );
 }
 
+Stream<Uint8List> getDocumentContentStream(
+  Uri uri, {
+  int? offset,
+  int? length,
+}) {
+  try {
+    // 准备传递给事件通道的参数
+    final Map<String, dynamic> args = <String, dynamic>{
+      'uri': uri.toString(),
+      'event': 'getDocumentContentStream',
+      if (offset != null) 'offset': offset,
+      if (length != null) 'length': length,
+    };
+
+    // 接收广播流
+    final Stream<dynamic> onCursorRowResult =
+        kDocumentFileEventChannel.receiveBroadcastStream(args);
+
+    // 将动态类型的流映射为Uint8List类型的流，带有错误处理
+    return onCursorRowResult.map<Uint8List>((dynamic event) {
+      if (event is Uint8List) {
+        return event;
+      } else {
+        // 处理类型错误的情况，例如：抛出异常或者返回一个空的Uint8List
+        // throw FormatException('Unexpected event type: ${event.runtimeType}');
+        // 或者返回一个空列表：
+        return Uint8List(0);
+      }
+    });
+  } catch (e) {
+    print("getDocumentContentStream = $e");
+  }
+  return kDocumentFileEventChannel.receiveBroadcastStream() as Stream<Uint8List>;
+}
+
 /// {@template sharedstorage.saf.exists}
 ///  Equivalent to `DocumentFile.exists`.
 ///

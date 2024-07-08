@@ -51,6 +51,7 @@ const val SHARE_URI = "shareUri"
  */
 const val LIST_FILES = "listFiles"
 const val GET_DOCUMENT_CONTENT = "getDocumentContent"
+const val GET_DOCUMENT_CONTENT_STREAM = "getDocumentContentStream"
 
 /**
  * Intent Request Codes

@@ -19,6 +19,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 
 /**
  * Aimed to implement strictly only the APIs already available from the native and original
@@ -588,6 +590,9 @@ internal class DocumentFileApi(private val plugin: SharedStoragePlugin) :
       LIST_FILES -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
         listFilesEvent(eventSink, args)
       }
+      GET_DOCUMENT_CONTENT_STREAM -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        getDocumentContentStream(eventSink, args)
+      }
     }
   }
 
@@ -655,6 +660,81 @@ internal class DocumentFileApi(private val plugin: SharedStoragePlugin) :
           eventSink.endOfStream()
         }
       }
+    }
+  }
+
+  private fun getDocumentContentStream(
+    eventSink: EventChannel.EventSink?,
+    args: Map<*, *>
+  ) {
+    if (eventSink == null) return
+
+    val uri = Uri.parse(args["uri"] as? String ?: return)
+    val document = DocumentFile.fromTreeUri(plugin.context, uri)
+
+    if (document == null) {
+      eventSink.error(
+        "EXCEPTION_NOT_SUPPORTED",
+        "Android SDK must be greater or equal than [Build.VERSION_CODES.N]",
+        "Got (Build.VERSION.SDK_INT): ${Build.VERSION.SDK_INT}"
+      )
+      eventSink.endOfStream()
+      return
+    }
+
+    if (!document.canRead()) {
+      val error = "You cannot read a URI that you don't have read permissions"
+      Log.d("NO PERMISSION!!!", error)
+      eventSink.error(
+        "EXCEPTION_MISSING_PERMISSIONS",
+        error,
+        mapOf("uri" to args["uri"])
+      )
+      eventSink.endOfStream()
+      return
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+      CoroutineScope(Dispatchers.IO).launch {
+        var inputStream: InputStream? = null
+        try {
+          val buffer = ByteArray(4096)
+          var bytesRead: Int
+          var bytesSent: Long = 0
+          inputStream = plugin.context.contentResolver.openInputStream(uri) ?: throw FileNotFoundException("Failed to open input stream")
+
+          val fileSize = document.length()
+          val offset = (args["offset"] as? Long) ?: 0
+          val length = (args["length"] as? Long) ?: fileSize
+          inputStream.skip(offset)
+
+          while (inputStream.read(buffer).also { bytesRead = it } != -1 && bytesSent < length) {
+            val toSend = minOf(bytesRead, (length - bytesSent).toInt())
+            val dataToSend = buffer.copyOfRange(0, toSend)
+            withContext(Dispatchers.Main) {
+              eventSink.success(dataToSend)
+            }
+            bytesSent += toSend
+          }
+        } catch (e: Exception) {
+          withContext(Dispatchers.Main) {
+            eventSink.error("ERROR", e.message, e)
+          }
+        } finally {
+          inputStream?.closeSafely()
+          withContext(Dispatchers.Main) { eventSink.endOfStream() }
+        }
+      }
+    } else {
+      eventSink.endOfStream()
+    }
+  }
+
+  private fun InputStream?.closeSafely() {
+    try {
+      this?.close()
+    } catch (e: IOException) {
+      e.printStackTrace()
     }
   }
 
